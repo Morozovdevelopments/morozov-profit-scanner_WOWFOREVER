@@ -21,6 +21,8 @@ local sortState = {
 	farm = { key = "value", desc = true },
 	farmNodes = { key = "value", desc = true },
 	farmItems = { key = "per100", desc = true },
+	farmZones = { key = "value", desc = true },
+	home = { key = "gain", desc = true }, -- «Главное» не сортируется, но столбцам нужна запись
 	flip = { key = "lot", desc = true },
 	prices = { key = "mkt", desc = true },
 }
@@ -445,7 +447,7 @@ local function HomeData()
 	return list
 end
 
-function ns.Refresh()
+local function RefreshUnsafe()
 	if not (f and f:IsShown()) then return end
 	if tab == "home" then
 		data = HomeData()
@@ -469,6 +471,16 @@ function ns.Refresh()
 	UpdateControls()
 	Render()
 	ns.UpdateStatus()
+end
+
+-- Ошибка при обновлении не должна ломать окно молча: пишем её в чат (одну и ту же — один раз).
+local lastError
+function ns.Refresh()
+	local ok, err = pcall(RefreshUnsafe)
+	if not ok and err ~= lastError then
+		lastError = err
+		ns.Print("|cffff4040ошибка окна:|r " .. tostring(err) .. " (сборка " .. ns.BUILD .. ")")
+	end
 end
 
 function ns.UpdateStatus()
@@ -591,6 +603,7 @@ local function SelectTab(name)
 	if menu then menu:Hide() end
 	ns.Refresh()
 end
+ns.TestSelectTab = SelectTab -- для проверки вне игры
 
 -- Выпадающий список профессий (свой: стандартные выпадающие меню в новых клиентах меняются).
 local function OpenProfMenu()
