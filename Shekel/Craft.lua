@@ -60,6 +60,28 @@ function ns.ProfessionList()
 	return list
 end
 
+-- Перезарядка рецепта в днях (по классике; на Forever может отличаться):
+-- трансмутации алхимиков и луноткань.
+local COOLDOWN_DAYS = {
+	[17187] = 2, -- Трансмутация: арканит
+	[11479] = 1, [11480] = 1, -- железо в золото, мифрил в истинное серебро
+	[17559] = 1, [17560] = 1, [17561] = 1, [17562] = 1, [17563] = 1, [17564] = 1, [17565] = 1, [17566] = 1, -- субстанции
+	[25146] = 1, -- элементальный огонь
+	[18560] = 4, -- луноткань
+}
+
+-- Сколько крафтов в день имеет смысл: не больше, чем позволяет перезарядка
+-- и чем покупают на аукционе. nil — неизвестно (нет перезарядки и нет данных о спросе).
+function ns.CraftsPerDay(row)
+	local limit
+	if row.cdDays then limit = 1 / row.cdDays end
+	if row.demand then
+		local bySales = row.demand / (row.qty or 1)
+		limit = limit and math.min(limit, bySales) or bySales
+	end
+	return limit
+end
+
 function ns.CraftRows()
 	local s = ns.db.settings
 	local rows = {}
@@ -80,10 +102,13 @@ function ns.CraftRows()
 				demand = ns.Demand(rc.out), flag = ns.PriceFlag(rc.out),
 				profKey = (rc.mine and "0" or "1") .. (rc.prof or "") .. string.format("%04d", rc.skill or 0),
 			}
+			row.cdDays = COOLDOWN_DAYS[recipeID]
 			if sellUnit and not missing then
 				row.sell = sellUnit * rc.qty * (1 - ns.AH_CUT)
 				row.profit = row.sell - cost
 				row.margin = cost > 0 and row.profit / cost * 100 or nil
+				local perDay = ns.CraftsPerDay(row)
+				if perDay then row.perDay = row.profit * perDay end
 			end
 			rows[#rows + 1] = row
 		end
@@ -152,6 +177,19 @@ function ns.CraftTooltip(row, tip)
 			end
 		end
 	end
+	-- Сколько это в день и по какой цене выставлять.
+	if row.cdDays then
+		tip:AddLine(("Перезарядка рецепта: раз в %d дн. (по классике)."):format(row.cdDays), 1, 0.5, 0.25, true)
+	end
+	if row.perDay then
+		tip:AddDoubleLine("Реально в день (спрос и перезарядка)", ns.Money(row.perDay), 0.4, 1, 0.4, 1, 1, 1)
+	end
+	local post = ns.PostPrice(row.id)
+	if post then
+		tip:AddDoubleLine("Выставлять по", ns.Money(post) .. " за шт.", 0.8, 0.8, 0.8, 1, 1, 1)
+	end
+	local _, why = ns.Confidence(row.id)
+	tip:AddLine(ns.ConfIcon(row.id) .. " Цена продажи: " .. why, 0.8, 0.8, 0.8, true)
 	tip:AddLine(" ")
 	tip:AddLine("Правый клик - список покупок на несколько крафтов.", 0.6, 0.6, 0.6)
 end

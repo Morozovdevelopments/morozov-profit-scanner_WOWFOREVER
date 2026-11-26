@@ -42,6 +42,24 @@ local function AddLines(tip, id)
 	if demand then
 		tip:AddDoubleLine("   уходит с аукциона", "~" .. ns.FormatQty(demand) .. " шт. в день", 0.7, 0.7, 0.7, 1, 1, 1)
 	end
+	-- Разброс цены за 2 недели и можно ли ей верить.
+	local r = ns.Record(id)
+	if r and r.h then
+		local today, lo, hi = math.floor(time() / ns.DAY), nil, nil
+		for day, p in pairs(r.h) do
+			if day >= today - 14 then
+				lo = (not lo or p < lo) and p or lo
+				hi = (not hi or p > hi) and p or hi
+			end
+		end
+		if lo and hi and hi > lo then
+			tip:AddDoubleLine("   за 2 недели", ns.Money(lo) .. " - " .. ns.Money(hi), 0.7, 0.7, 0.7, 1, 1, 1)
+		end
+	end
+	if price then
+		local _, why = ns.Confidence(id)
+		tip:AddLine("   " .. ns.ConfIcon(id) .. " " .. why, 0.7, 0.7, 0.7)
+	end
 	if sell and sell > 0 then
 		tip:AddDoubleLine("   торговец даст", ns.Money(sell), 0.7, 0.7, 0.7, 1, 1, 1)
 	end

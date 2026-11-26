@@ -20,13 +20,36 @@ local MONEY = Enum.LootSlotType and Enum.LootSlotType.Money or 2
 
 local firstLoot, firstCount = {}, 0 -- [guid] = { [itemID] = true } — что было в трупе при первом открытии
 
+-- Заработок по зонам: ShekelDB.learn.zones[зона] = { sec = секунд фарма, value = медь }.
+-- Время между двумя добычами засчитывается, только если пауза не больше 2 минут.
+local function ZoneAdd(sec, value)
+	local zone = GetRealZoneText and GetRealZoneText()
+	if not zone or zone == "" then return end
+	local zones = ns.db.learn.zones
+	local z = zones[zone]
+	if not z then
+		z = { sec = 0, value = 0 }
+		zones[zone] = z
+	end
+	z.sec, z.value = z.sec + (sec or 0), z.value + (value or 0)
+end
+
+-- Золото в час в зоне по своим сессиям (нужно хотя бы 10 минут фарма).
+function ns.ZoneGoldPerHour(zone)
+	local z = zone and ns.db.learn.zones[zone]
+	if not z or z.sec < 600 then return end
+	return z.value / z.sec * 3600, z.sec
+end
+
 local function Session(now)
 	local s = ns.session
 	if not s or now - s.last > IDLE then
 		s = { start = now, last = now, kills = 0, nodes = 0, value = 0, money = 0, zone = GetRealZoneText and GetRealZoneText() }
 		ns.session = s
 	end
+	local dt = math.min(now - s.last, 120)
 	s.last = now
+	if dt > 0 then ZoneAdd(dt, 0) end
 	return s
 end
 
@@ -118,7 +141,7 @@ local function OnLoot()
 				m.zone = GetRealZoneText and GetRealZoneText() or m.zone
 				local s = Session(now)
 				s.kills = s.kills + 1
-				s.value = s.value + Value(b.items)
+				local v = Value(b.items); s.value = s.value + v; ZoneAdd(0, v)
 			elseif next(b.items) then
 				-- Тот же труп ещё раз: если предметы те же — это недобранная добыча, иначе — шкуры.
 				local same = false
@@ -130,7 +153,7 @@ local function OnLoot()
 					Add(m.s, b.items)
 					for item in pairs(b.items) do first[item] = true end
 					local s = Session(now)
-					s.value = s.value + Value(b.items)
+					local v = Value(b.items); s.value = s.value + v; ZoneAdd(0, v)
 				end
 			end
 		elseif kind == "GameObject" and id and not first then
@@ -145,7 +168,7 @@ local function OnLoot()
 			Add(n.d, b.items)
 			local s = Session(now)
 			s.nodes = s.nodes + 1
-			s.value = s.value + Value(b.items)
+			local v = Value(b.items); s.value = s.value + v; ZoneAdd(0, v)
 		end
 	end
 	if firstCount > 3000 then firstLoot, firstCount = {}, 0 end -- не копим бесконечно
@@ -161,7 +184,10 @@ end)
 ns.On("LOOT_CLOSED", function()
 	if moneyBefore and ns.session then
 		local delta = GetMoney() - moneyBefore
-		if delta > 0 then ns.session.money = ns.session.money + delta end
+		if delta > 0 then
+			ns.session.money = ns.session.money + delta
+			ZoneAdd(0, delta)
+		end
 	end
 	moneyBefore = nil
 	if ns.Refresh then ns.Refresh() end

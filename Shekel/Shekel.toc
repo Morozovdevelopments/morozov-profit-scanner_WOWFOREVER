@@ -19,6 +19,8 @@ Flip.lua
 Learn.lua
 Shop.lua
 Buyer.lua
+Watch.lua
+Map.lua
 Tooltip.lua
 UI.lua
 Minimap.lua

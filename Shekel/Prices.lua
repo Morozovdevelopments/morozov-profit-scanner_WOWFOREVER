@@ -135,6 +135,45 @@ function ns.Demand(id)
 	return gone / (span / ns.DAY)
 end
 
+-- Надёжность цены: можно ли ей верить.
+--   "good" — свежий скан, цена в пределах обычной, предмет покупают;
+--   "mid"  — мало данных (нет истории или спроса) или на аукционе 1-2 штуки;
+--   "bad"  — нет на аукционе, скан старше суток, цена задрана или никто не покупает.
+-- Возвращает уровень и короткое объяснение для подсказки.
+function ns.Confidence(id)
+	local price, qty, age, src = ns.Price(id)
+	if not price then return "bad", "цены нет" end
+	if src == "нет на аукционе" then return "bad", "сейчас нет на аукционе" end
+	if age and age > ns.DAY then return "bad", "скан старше суток" end
+	local flag = ns.PriceFlag(id)
+	if flag == "high" then return "bad", "цена вдвое выше обычной" end
+	local demand = ns.Demand(id)
+	if demand and demand < 0.5 then return "bad", "почти не покупают" end
+	if not demand or not ns.Median(id) then return "mid", "мало истории: нужны сканы в разные дни" end
+	if qty and qty < 3 then return "mid", "на аукционе всего " .. qty .. " шт." end
+	return "good", "цена стабильная, предмет покупают"
+end
+
+local ICONS = {
+	good = "|TInterface\\COMMON\\Indicator-Green:10:10|t",
+	mid = "|TInterface\\COMMON\\Indicator-Yellow:10:10|t",
+	bad = "|TInterface\\COMMON\\Indicator-Red:10:10|t",
+}
+function ns.ConfIcon(id)
+	return ICONS[(ns.Confidence(id))]
+end
+
+-- По какой цене выставить: на медь дешевле самого дешёвого лота,
+-- но не ниже 80% обычной цены — демпинговать вслед за кем-то невыгодно.
+function ns.PostPrice(id)
+	local cur = ns.Price(id)
+	if not cur then return end
+	local med = ns.Median(id)
+	local p = cur - 1
+	if med and p < med * 0.8 then p = math.floor(med * 0.8) end
+	return math.max(1, p)
+end
+
 -- Сколько стоит достать реагент: дешевле из торговца и аукциона.
 function ns.Cost(id)
 	local vendor = ns.db.vendor[id] or (ns.BASE_VENDOR and ns.BASE_VENDOR[id]) -- увиденное в игре важнее базы

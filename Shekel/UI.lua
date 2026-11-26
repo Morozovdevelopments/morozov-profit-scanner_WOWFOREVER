@@ -4,14 +4,15 @@
 local _, ns = ...
 
 local W, H = 820, 540
-local ROWS, ROW_H = 15, 22
+local ROWS, ROW_H = 30, 22 -- строк создаём с запасом; видно столько, сколько влезает по высоте
+local vis = 14
 local LIST_TOP = -182
 local MAXCOLS = 8
 local GOLD = { 1, 0.82, 0 }
 
 local f, rows, headers, empty, footer, hint, scanBtn, statusText, profBtn, menu, bar, resetBtn, flipBuyBtn
 local tabButtons, modeButtons, farmButtons, controls, boxes = {}, {}, {}, {}, {}
-local tab = "craft"
+local tab = "home"
 local offset = 0
 local data = {}
 local search = ""
@@ -29,11 +30,12 @@ local COLS = {
 		{ title = "Что крафтить", key = "label", w = 200, left = true },
 		{ title = "Профессия", key = "profKey", w = 110, left = true, kind = "prof" },
 		{ title = "Реагенты", key = "cost", w = 80, kind = "money" },
-		{ title = "Продажа", key = "sell", w = 80, kind = "money" },
+		{ title = "Продажа", key = "sell", w = 80, kind = "money", conf = true },
 		{ title = "Прибыль", key = "profit", w = 80, kind = "money" },
 		{ title = "Маржа", key = "margin", w = 50, kind = "pct" },
 		{ title = "На АУК", key = "onAH", w = 50, kind = "num" },
-		{ title = "В день", key = "demand", w = 50, kind = "qty", tip = "Сколько штук в день уходит с аукциона (по сканам)" },
+		{ title = "В день", key = "perDay", w = 50, kind = "money",
+			tip = "Сколько реально заработать в день: прибыль x сколько крафтов позволяют спрос и перезарядка" },
 	},
 	farm = {
 		{ title = "Моб", key = "label", w = 165, left = true },
@@ -48,13 +50,27 @@ local COLS = {
 	},
 	farmItems = {
 		{ title = "Что добывать", key = "label", w = 170, left = true },
-		{ title = "Цена шт.", key = "price", w = 80, kind = "money", tip = "Сколько стоит одна штука на аукционе" },
+		{ title = "Цена шт.", key = "price", w = 80, kind = "money", conf = true, tip = "Сколько стоит одна штука на аукционе" },
 		{ title = "В день", key = "demand", w = 50, kind = "qty", tip = "Сколько штук в день уходит с аукциона (по сканам)" },
 		{ title = "Где лучше всего", key = "whereText", w = 200, left = true, kind = "text" },
 		{ title = "Уровень", key = "lvl", w = 60, kind = "lvl" },
 		{ title = "Шанс", key = "chance", w = 50, kind = "chance" },
 		{ title = "За 100", key = "per100", w = 90, kind = "money",
 			tip = "Сколько принесут 100 убийств (или 100 узлов) в лучшем месте - по цене аукциона за вычетом 5%" },
+	},
+	home = {
+		{ title = "Что сделать", key = "label", w = 290, left = true },
+		{ title = "Подробности", key = "detail", w = 340, left = true, kind = "text" },
+		{ title = "Выгода", key = "gain", w = 120, kind = "money",
+			tip = "Крафт - прибыль в день (или за крафт), торговцу - прибыль за лот, фарм - за 100 убийств" },
+	},
+	farmZones = {
+		{ title = "Зона", key = "label", w = 170, left = true },
+		{ title = "Уровни", key = "lvl", w = 60, kind = "lvl" },
+		{ title = "Лучшие мобы", key = "names", w = 270, left = true, kind = "text" },
+		{ title = "Мобов", key = "spawns", w = 55, kind = "num", tip = "Сколько этих мобов в зоне (по базе классики)" },
+		{ title = "За убийство", key = "value", w = 95, kind = "money", tip = "Средний доход с убийства у 3 лучших мобов зоны" },
+		{ title = "Твоё в час", key = "perHour", w = 85, kind = "money", tip = "Сколько ты сам заработал здесь в час (после 10+ минут фарма)" },
 	},
 	farmNodes = {
 		{ title = "Узел", key = "label", w = 190, left = true },
@@ -67,7 +83,7 @@ local COLS = {
 	},
 	flip = {
 		{ title = "Предмет", key = "label", w = 240, left = true },
-		{ title = "Купить за", key = "buy", w = 95, kind = "money" },
+		{ title = "Купить за", key = "buy", w = 95, kind = "money", conf = true },
 		{ title = "Торговец даст", key = "sell", w = 95, kind = "money" },
 		{ title = "За шт.", key = "profit", w = 80, kind = "money" },
 		{ title = "За лот", key = "lot", w = 115, kind = "lot",
@@ -77,7 +93,7 @@ local COLS = {
 	},
 	prices = {
 		{ title = "Предмет", key = "label", w = 300, left = true },
-		{ title = "Цена за штуку", key = "mkt", w = 110, kind = "money" },
+		{ title = "Цена за штуку", key = "mkt", w = 110, kind = "money", conf = true },
 		{ title = "Штук", key = "qty", w = 70, kind = "num" },
 		{ title = "В день", key = "demand", w = 80, kind = "qty", tip = "Сколько штук в день уходит с аукциона (по сканам)" },
 		{ title = "За 7 дней", key = "chg", w = 80, kind = "pct" },
@@ -86,6 +102,8 @@ local COLS = {
 }
 
 local HINTS = {
+	home = "Лучшее, что можно сделать прямо сейчас - из твоих рецептов, на твоём уровне. Клик по строке - сделать.",
+	farmZones = "Где фармить целой зоной: 3 самых доходных моба твоих уровней. Правый клик - лучший моб на карте.",
 	craft = "Наведи мышь на строку - расчёт и где взять рецепт. Правый клик - список покупок. "
 		.. "|cff40ff40Зелёным|r - рецепты, которые ты знаешь.",
 	farmItems = "Что выгодно добывать на твоём уровне: цена, сколько покупают в день и лучшее место. "
@@ -100,6 +118,7 @@ local HINTS = {
 local function View()
 	if tab == "farm" and ns.db.settings.farmMode == "nodes" then return "farmNodes" end
 	if tab == "farm" and ns.db.settings.farmMode == "items" then return "farmItems" end
+	if tab == "farm" and ns.db.settings.farmMode == "zones" then return "farmZones" end
 	return tab
 end
 
@@ -119,9 +138,10 @@ local function Cell(col, d)
 	local v = d[col.key]
 	if col.kind == "prof" then return ns.ProfCell(d) end
 	if col.kind == "money" then
-		-- Цена вдвое выше или ниже обычной — оранжевая рамка внимания.
-		if col.key == "mkt" and d.flag then return "|cffff8040!|r " .. ns.Money(v) end
-		return ns.Money(v)
+		if d.header or (v == nil and col.key == "gain") then return "" end
+		-- Цветная отметка: можно ли верить этой цене (подробности — в подсказке предмета).
+		local icon = (col.conf and d.id and v) and (ns.ConfIcon(d.id) .. " ") or ""
+		return icon .. ns.Money(v)
 	end
 	if col.kind == "age" then return ns.Age(v) end
 	if col.kind == "chance" then return v and (ns.FormatQty(v) .. "%") or DASH end
@@ -178,7 +198,7 @@ local function PriceData()
 	local names = ns.db.names -- только своя база: 7000 обращений к игре на каждую перерисовку тормозят
 	for id, r in pairs(h.items) do
 		local label = names[id] or ""
-		if not needle or ulower(label):find(needle, 1, true) then
+		if (not needle or ulower(label):find(needle, 1, true)) and (not ns.db.settings.pricesWatchOnly or ns.db.watch[id]) then
 			local fresh = not h.lastScan or (r.t and r.t >= h.lastScan)
 			list[#list + 1] = {
 				id = id, label = label, mkt = r.mkt,
@@ -192,6 +212,7 @@ local function PriceData()
 end
 
 local function Sort()
+	if tab == "home" then return end
 	local st = sortState[View()]
 	local key, desc = st.key, st.desc
 	table.sort(data, function(a, b)
@@ -209,6 +230,7 @@ local NO_PRICES = "Цен с аукциона пока нет.\n\nОткрой �
 
 local function EmptyText()
 	local s = ns.db.settings
+	if tab == "home" then return NO_PRICES end
 	if tab == "farm" then
 		if s.farmMode == "items" then
 			if not ns.House().lastScan then return NO_PRICES end
@@ -245,10 +267,10 @@ end
 
 local function Render()
 	local cols = COLS[View()]
-	offset = math.max(0, math.min(offset, #data - ROWS))
+	offset = math.max(0, math.min(offset, #data - vis))
 	for i = 1, ROWS do
 		local row = rows[i]
-		local d = data[offset + i]
+		local d = i <= vis and data[offset + i] or nil
 		row.data = d
 		if d then
 			-- Название спрашиваем у сервера только для видимых строк.
@@ -260,10 +282,11 @@ local function Render()
 			row.icon:SetShown(not flip)
 			row.check:SetShown(flip)
 			if flip then row.check:SetChecked(ns.flipSel[d.id] and true or false) end
+			if d.header or d.noIcon then row.icon:Hide() end
 			for c, col in ipairs(cols) do
 				local text
 				if c == 1 then
-					text = d.labelText or ns.ColoredName(d.id)
+					text = d.labelText or (ns.WatchStar(d.id) .. ns.ColoredName(d.id))
 					if tab == "craft" and d.qty and d.qty ~= 1 then text = text .. (" |cff808080x%g|r"):format(d.qty) end
 					if tab == "craft" and d.via then text = text .. " |cff808080из " .. (ns.KnownName(d.via) or "...") .. "|r" end
 				else
@@ -278,9 +301,12 @@ local function Render()
 	end
 	empty:SetShown(#data == 0)
 	if #data == 0 then empty:SetText(EmptyText()) end
-	local from, to = math.min(offset + 1, #data), math.min(offset + ROWS, #data)
-	local click = tab == "farm" and "наведи на главную добычу - окно предмета" or "клик - найти на аукционе"
-	if tab == "craft" then click = click .. "    ||    правый клик - список покупок" end
+	local from, to = math.min(offset + 1, #data), math.min(offset + vis, #data)
+	local click = "клик - найти на аукционе"
+	if tab == "home" then click = "клик - сделать"
+	elseif tab == "farm" then click = "правый клик - на карте"
+	elseif tab == "craft" then click = click .. "    ||    правый клик - список покупок" end
+	if tab ~= "home" then click = click .. "    ||    Alt+клик - в избранное" end
 	footer:SetText(("Строки %d-%d из %d    ||    колёсико - прокрутка    ||    %s    ||    Shift+клик - ссылка в чат")
 		:format(from, to, #data, click))
 end
@@ -351,9 +377,79 @@ local function UpdateControls()
 	flipBuyBtn:SetEnabled(n > 0 and ns.ahOpen and true or false)
 end
 
+-- «Главное»: по 3 лучших действия из каждого раздела — только то, что доступно тебе.
+local function HomeData()
+	local list = {}
+	local s = ns.db.settings
+	local function header(text) list[#list + 1] = { header = true, labelText = "|cffffd200" .. text .. "|r", detail = "" } end
+	local function note(text) list[#list + 1] = { noIcon = true, labelText = "|cff808080" .. text .. "|r", detail = "" } end
+
+	header("Скрафтить и продать")
+	local mode, prof = s.craftMode, s.craftProf
+	s.craftMode, s.craftProf = "mine", nil
+	local crafts = {}
+	for _, r in ipairs(ns.CraftRows()) do
+		if r.profit and r.profit >= s.minProfit and (r.margin or 0) >= s.minMargin and ns.Confidence(r.id) ~= "bad" then
+			crafts[#crafts + 1] = r
+		end
+	end
+	s.craftMode, s.craftProf = mode, prof
+	table.sort(crafts, function(a, b) return (a.perDay or a.profit) > (b.perDay or b.profit) end)
+	for i = 1, math.min(3, #crafts) do
+		local r = crafts[i]
+		list[#list + 1] = {
+			id = r.id, detail = ("%s: реагенты %s, продажа %s"):format(ns.ShortProf(r.prof or ""), ns.Money(r.cost), ns.Money(r.sell)),
+			gain = r.perDay or r.profit, craftRow = r, action = function() ns.OpenShopping(r) end,
+		}
+	end
+	if #crafts == 0 then
+		note(next(ns.char.recipes) and "Сейчас нет выгодного крафта по твоим рецептам." or "Открой окно своей профессии - аддон запомнит рецепты.")
+	end
+
+	header("Перепродать торговцу")
+	local flips = ns.FlipRows()
+	table.sort(flips, function(a, b) return a.lot > b.lot end)
+	for i = 1, math.min(3, #flips) do
+		local r = flips[i]
+		list[#list + 1] = {
+			id = r.id, detail = ("купить за %s, торговец даст %s"):format(ns.Money(r.buy), ns.Money(r.sell)),
+			gain = r.lot, flipRow = r, action = function() ns.FlipFind({ r.id }) end,
+		}
+	end
+	if #flips == 0 then note("Лотов дешевле торговца нет (или нужен свежий скан).") end
+
+	header("Пофармить на твоём уровне")
+	local farm = ns.FarmItemRows()
+	table.sort(farm, function(a, b) return a.per100 > b.per100 end)
+	for i = 1, math.min(3, #farm) do
+		local r = farm[i]
+		list[#list + 1] = {
+			id = r.id, detail = r.whereText .. "  |cff808080" .. r.lvlText .. ", " .. ns.FormatQty(r.chance) .. "%|r",
+			gain = r.per100, farmRow = r, action = function() ns.ShowOnMap(r.mapKind, r.mapID, r.mapName) end,
+		}
+	end
+	if #farm == 0 then note("Нет ценной добычи на твоих уровнях (или нужен скан аукциона).") end
+
+	local deals = ns.WatchDeals()
+	header("Избранное подешевело")
+	for i = 1, math.min(3, #deals) do
+		local r = deals[i]
+		list[#list + 1] = {
+			id = r.id, detail = ("сейчас %s, обычно %s, %d шт."):format(ns.Money(r.price), ns.Money(r.median), r.qty or 0),
+			gain = r.save, action = function() SearchAH(r.id) end,
+		}
+	end
+	if #deals == 0 then
+		note(next(ns.db.watch) and "Пока ничего из избранного не подешевело." or "Alt+клик по любому предмету - в избранное: сообщу, когда подешевеет.")
+	end
+	return list
+end
+
 function ns.Refresh()
 	if not (f and f:IsShown()) then return end
-	if tab == "craft" then
+	if tab == "home" then
+		data = HomeData()
+	elseif tab == "craft" then
 		data = CraftData()
 	elseif tab == "farm" then
 		data = FarmData()
@@ -535,8 +631,18 @@ end
 
 local function Build()
 	local s = ns.db.settings
-	f = CreateFrame("Frame", "ShekelFrame", UIParent)
-	f:SetSize(W, H)
+	f = CreateFrame("Frame", "ShekelFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+	f:SetSize(W, s.height or H)
+	vis = math.max(5, math.min(ROWS, math.floor(((s.height or H) + LIST_TOP - 34) / ROW_H)))
+	-- Рамка в стиле окон самой игры: тёмный фон и золотой край.
+	if f.SetBackdrop then
+		f:SetBackdrop({
+			bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+			edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
+			tile = true, tileSize = 32, edgeSize = 24,
+			insets = { left = 6, right = 6, top = 6, bottom = 6 },
+		})
+	end
 	f:SetPoint("CENTER")
 	f:SetFrameStrata("HIGH")
 	f:SetMovable(true)
@@ -554,8 +660,9 @@ local function Build()
 	f:Hide()
 
 	local bg = f:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints()
-	bg:SetColorTexture(0.05, 0.05, 0.08, 0.95)
+	bg:SetPoint("TOPLEFT", 6, -6)
+	bg:SetPoint("BOTTOMRIGHT", -6, 6)
+	bg:SetColorTexture(0.05, 0.05, 0.08, 0.85)
 	local top = f:CreateTexture(nil, "BORDER")
 	top:SetPoint("TOPLEFT")
 	top:SetPoint("TOPRIGHT")
@@ -603,10 +710,56 @@ local function Build()
 	scanBtn:SetScript("OnClick", function() ns.StartScan() ns.UpdateStatus() end)
 
 	-- Вкладки.
-	tabButtons.craft = Toggle("Крафт", 110, 14, -68, function() SelectTab("craft") end)
-	tabButtons.farm = Toggle("Фарм", 110, 128, -68, function() SelectTab("farm") end)
-	tabButtons.flip = Toggle("Торговцу", 110, 242, -68, function() SelectTab("flip") end)
-	tabButtons.prices = Toggle("Цены", 110, 356, -68, function() SelectTab("prices") end)
+	tabButtons.home = Toggle("Главное", 110, 14, -68, function() SelectTab("home") end)
+	tabButtons.craft = Toggle("Крафт", 110, 128, -68, function() SelectTab("craft") end)
+	tabButtons.farm = Toggle("Фарм", 110, 242, -68, function() SelectTab("farm") end)
+	tabButtons.flip = Toggle("Торговцу", 110, 356, -68, function() SelectTab("flip") end)
+	tabButtons.prices = Toggle("Цены", 110, 470, -68, function() SelectTab("prices") end)
+
+	-- Настройки: галочки вместо команд /shekel ...
+	local opts = CreateFrame("Frame", nil, f)
+	opts:SetSize(360, 230)
+	opts:SetPoint("TOPRIGHT", -12, -46)
+	opts:SetFrameStrata("DIALOG")
+	local obg = opts:CreateTexture(nil, "BACKGROUND")
+	obg:SetAllPoints()
+	obg:SetColorTexture(0.08, 0.08, 0.11, 0.98)
+	local otitle = opts:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	otitle:SetPoint("TOPLEFT", 12, -10)
+	otitle:SetText("Настройки")
+	opts:Hide()
+	local OPTIONS = {
+		{ "Открывать вместе с аукционом", "autoOpen" },
+		{ "Сканировать сам, если скан старше часа", "autoScan" },
+		{ "Цены Шекеля в подсказках предметов", "tooltip" },
+		{ "Вставать рядом с аукционом и профессией", "dockProfession" },
+		{ "Открываться вместе с окном профессии", "openWithProfession" },
+		{ "Сообщать, когда избранное подешевело", "alerts" },
+		{ "Кнопка у миникарты", "minimap" },
+	}
+	for i, o in ipairs(OPTIONS) do
+		local cb = CreateFrame("CheckButton", nil, opts, "UICheckButtonTemplate")
+		cb:SetSize(24, 24)
+		cb:SetPoint("TOPLEFT", 10, -28 - (i - 1) * 27)
+		local label = opts:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		label:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+		label:SetText(o[1])
+		cb:SetScript("OnShow", function(self)
+			if o[2] == "minimap" then self:SetChecked(not s.minimapHide) else self:SetChecked(s[o[2]] and true or false) end
+		end)
+		cb:SetScript("OnClick", function(self)
+			if o[2] == "minimap" then
+				if (not s.minimapHide) ~= (self:GetChecked() and true or false) then ns.ToggleMinimapButton() end
+			else
+				s[o[2]] = self:GetChecked() and true or false
+			end
+		end)
+	end
+	local optBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+	optBtn:SetSize(100, 26)
+	optBtn:SetPoint("TOPRIGHT", -220, -14)
+	optBtn:SetText("Настройки")
+	optBtn:SetScript("OnClick", function() opts:SetShown(not opts:IsShown()) end)
 
 	-- Крафт.
 	local function SetMode(mode)
@@ -669,19 +822,20 @@ local function Build()
 	farmButtons.items = Toggle("Ресурсы", 110, 14, -104, function() SetFarm("items") end)
 	farmButtons.mobs = Toggle("Мобы", 110, 128, -104, function() SetFarm("mobs") end)
 	farmButtons.nodes = Toggle("Трава и руда", 110, 242, -104, function() SetFarm("nodes") end)
-	controls.farm = { farmButtons.items, farmButtons.mobs, farmButtons.nodes }
+	farmButtons.zones = Toggle("Зоны", 100, 356, -104, function() SetFarm("zones") end)
+	controls.farm = { farmButtons.items, farmButtons.mobs, farmButtons.nodes, farmButtons.zones }
 	controls.farmMobs = {
-		Label(f, "Уровень мобов от", 380, -110),
-		NumberBox(492, -105, function() return (ns.FarmLevelRange()) end, function(v) s.farmMin = math.max(1, v) end),
-		Label(f, "до", 542, -110),
-		NumberBox(562, -105, function() return select(2, ns.FarmLevelRange()) end, function(v) s.farmMax = math.max(1, v) end),
-		Button("Мой уровень", 110, 616, -104, function()
+		Label(f, "Уровни от", 470, -110),
+		NumberBox(530, -105, function() return (ns.FarmLevelRange()) end, function(v) s.farmMin = math.max(1, v) end),
+		Label(f, "до", 580, -110),
+		NumberBox(600, -105, function() return select(2, ns.FarmLevelRange()) end, function(v) s.farmMax = math.max(1, v) end),
+		Button("Мой уровень", 110, 654, -104, function()
 			s.farmMin, s.farmMax = nil, nil
 			offset = 0
 			ns.Refresh()
 		end),
 	}
-	local mySkill, mySkillLabel = Check(380, -104, "только узлы, которые я могу собрать",
+	local mySkill, mySkillLabel = Check(470, -104, "только узлы, которые я могу собрать",
 		function() return s.farmMySkill end, function(v) s.farmMySkill = v end)
 	controls.farmNodes = { mySkill, mySkillLabel }
 	resetBtn = Button("Сбросить сессию", 140, 666, -136, function() ns.ResetSession() end)
@@ -698,7 +852,9 @@ local function Build()
 	end)
 	box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 	box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-	controls.prices = { Label(f, "Найти предмет:", 18, -110), box }
+	local watchOnly, watchOnlyLabel = Check(400, -104, "только избранное",
+		function() return s.pricesWatchOnly end, function(v) s.pricesWatchOnly = v end)
+	controls.prices = { Label(f, "Найти предмет:", 18, -110), box, watchOnly, watchOnlyLabel }
 
 	-- Торговцу: выбор и выкуп.
 	local function SelectAll(on)
@@ -811,8 +967,18 @@ local function Build()
 		row:SetScript("OnClick", function(self, button)
 			local d = self.data
 			if not d then return end
+			if d.header or d.noIcon then return end
+			if IsAltKeyDown() then -- в избранное / из избранного
+				ns.ToggleWatch(d.id or d.best)
+				return
+			end
 			if button == "RightButton" then
 				if tab == "craft" then ns.OpenShopping(d) end
+				if tab == "farm" and d.mapID then ns.ShowOnMap(d.mapKind, d.mapID, d.mapName) end
+				return
+			end
+			if tab == "home" then
+				if d.action then d.action() end
 				return
 			end
 			if IsShiftKeyDown() then InsertLink(d.id) else SearchAH(d.id) end
@@ -821,8 +987,21 @@ local function Build()
 			local d = self.data
 			if not d then return end
 			TipOwner(self)
-			if tab == "farm" then
-				if d.kind == "item" then ns.FarmItemTooltip(d, GameTooltip) else ns.FarmTooltip(d, GameTooltip) end
+			if d.header or d.noIcon then return end
+			if tab == "home" then
+				if d.farmRow then
+					ns.FarmItemTooltip(d.farmRow, GameTooltip)
+				else
+					ns.ownTooltip = d.craftRow or d.flipRow
+					GameTooltip:SetItemByID(d.id)
+					ns.ownTooltip = false
+					if d.craftRow then ns.CraftTooltip(d.craftRow, GameTooltip) end
+					if d.flipRow then ns.FlipTooltip(d.flipRow, GameTooltip) end
+				end
+			elseif tab == "farm" then
+				if d.kind == "item" then ns.FarmItemTooltip(d, GameTooltip)
+				elseif d.kind == "zone" then ns.FarmZoneTooltip(d, GameTooltip)
+				else ns.FarmTooltip(d, GameTooltip) end
 			else
 				ns.ownTooltip = true -- свои строки добавим сами, без общих строк «Шекеля»
 				GameTooltip:SetItemByID(d.id)
@@ -841,7 +1020,34 @@ local function Build()
 	empty:SetJustifyH("CENTER")
 
 	footer = Label(f, "", 14, -(H - 20))
+	footer:ClearAllPoints()
+	footer:SetPoint("BOTTOMLEFT", 16, 12)
 	footer:SetTextColor(0.55, 0.55, 0.55)
+
+	-- Высоту окна можно менять уголком справа внизу: строк станет больше или меньше.
+	f:SetResizable(true)
+	if f.SetResizeBounds then
+		f:SetResizeBounds(W, 380, W, 1200)
+	elseif f.SetMinResize then
+		f:SetMinResize(W, 380)
+		f:SetMaxResize(W, 1200)
+	end
+	local grip = CreateFrame("Button", nil, f)
+	grip:SetSize(16, 16)
+	grip:SetPoint("BOTTOMRIGHT", -6, 6)
+	grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+	grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+	grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+	grip:SetScript("OnMouseDown", function() f:StartSizing("BOTTOMRIGHT") end)
+	grip:SetScript("OnMouseUp", function()
+		f:StopMovingOrSizing()
+		s.height = math.floor(f:GetHeight() + 0.5)
+		if not ns.docked then s.point = { "TOPLEFT", "BOTTOMLEFT", f:GetLeft(), f:GetTop() } end
+	end)
+	f:SetScript("OnSizeChanged", function(_, _, h)
+		vis = math.max(5, math.min(ROWS, math.floor((h + LIST_TOP - 34) / ROW_H)))
+		if f:IsShown() then Render() end
+	end)
 
 	f:EnableMouseWheel(true)
 	f:SetScript("OnMouseWheel", function(_, delta)
@@ -919,6 +1125,7 @@ function ns.OnAuctionHouse(open)
 	if open then
 		ns.dockManual = false
 		if ns.db.settings.autoOpen and not f:IsShown() then
+			tab = "home"
 			f:Show()
 			autoShown = true
 		end

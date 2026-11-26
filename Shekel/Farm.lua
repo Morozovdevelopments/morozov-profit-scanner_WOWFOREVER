@@ -157,7 +157,7 @@ local function SourceInfo(src, itemID, minL, maxL, skills)
 		if not m or m[2] < minL or m[1] > maxL then return end
 		return {
 			name = m[7], where = MobZone(src.mob), lvl = m[1], lvlText = LevelText(m[1], m[2]),
-			per = PerKill(src.mob, itemID, src.chance, src.cnt), kind = "mob",
+			per = PerKill(src.mob, itemID, src.chance, src.cnt), kind = "mob", id = src.mob,
 		}
 	end
 	local n = ns.NODES[src.node]
@@ -166,7 +166,7 @@ local function SourceInfo(src, itemID, minL, maxL, skills)
 	local have = skills[isHerb and SKILL_HERB or SKILL_MINE]
 	return {
 		name = n[3], where = isHerb and "Травничество" or "Горное дело", lvl = n[4], lvlText = "навык " .. n[4],
-		per = src.chance / 100 * src.cnt, kind = "node", canGather = have and have >= n[4],
+		per = src.chance / 100 * src.cnt, kind = "node", id = src.node, canGather = have and have >= n[4],
 	}
 end
 
@@ -191,6 +191,7 @@ function ns.FarmItemRows()
 					whereText = bestInfo.name .. (bestInfo.where and ("|cff808080, " .. bestInfo.where .. "|r") or ""),
 					lvl = bestInfo.lvl, lvlText = bestInfo.lvlText, chance = bestInfo.per * 100,
 					per100 = bestInfo.per * 100 * unit, sources = list,
+					mapKind = bestInfo.kind, mapID = bestInfo.id, mapName = bestInfo.name,
 				}
 			end
 		end
@@ -224,7 +225,69 @@ function ns.FarmItemTooltip(row, tip)
 		tip:AddLine(" ")
 		tip:AddLine(("За 100 %s: ~%s шт. = %s"):format(what, ns.FormatQty(best.per * 100), ns.Money(best.per * 100 * unit)), 0.4, 1, 0.4)
 	end
-	tip:AddLine("Клик - найти на аукционе", 0.6, 0.6, 0.6)
+	tip:AddLine("Клик - найти на аукционе, правый клик - лучшее место на карте", 0.6, 0.6, 0.6, true)
+end
+
+---------------------------------------------------------------------------
+-- Режим «Зоны»: где лучше фармить целой зоной
+---------------------------------------------------------------------------
+
+-- Для каждой зоны: 3 самых доходных моба твоих уровней, их средний доход за убийство,
+-- сколько их в мире и сколько ты сам заработал там в час (если фармил хотя бы 10 минут).
+function ns.FarmZoneRows()
+	local minL, maxL = ns.FarmLevelRange()
+	local byZone = {}
+	for id, m in pairs(ns.MOBS or {}) do
+		if m[2] >= minL and m[1] <= maxL then
+			local zone = MobZone(id)
+			if zone then
+				local value = m[3] + m[4] + MobLoot(id, m[5])
+				local list = byZone[zone]
+				if not list then
+					list = {}
+					byZone[zone] = list
+				end
+				list[#list + 1] = { id = id, name = m[7], value = value, spawns = m[8] or 0, lmin = m[1], lmax = m[2] }
+			end
+		end
+	end
+	local rows = {}
+	for zone, list in pairs(byZone) do
+		table.sort(list, function(a, b) return a.value > b.value end)
+		local top, sum, spawns, lmin, lmax = {}, 0, 0, 99, 0
+		for i = 1, math.min(3, #list) do
+			local m = list[i]
+			top[i] = m
+			sum, spawns = sum + m.value, spawns + m.spawns
+			lmin, lmax = math.min(lmin, m.lmin), math.max(lmax, m.lmax)
+		end
+		local names = top[1].name .. (top[2] and (", " .. top[2].name) or "")
+		rows[#rows + 1] = {
+			kind = "zone", label = zone, labelText = zone, zone = zone, mobs = list,
+			lvl = lmin, lvlText = LevelText(lmin, lmax), names = names,
+			value = sum / #top, spawns = spawns, perHour = ns.ZoneGoldPerHour(zone),
+			mapKind = "mob", mapID = top[1].id, mapName = top[1].name,
+		}
+	end
+	return rows
+end
+
+function ns.FarmZoneTooltip(row, tip)
+	tip:SetText(row.zone, 1, 0.82, 0)
+	tip:AddLine("Самые доходные мобы твоих уровней:", 1, 1, 1)
+	for i = 1, math.min(6, #row.mobs) do
+		local m = row.mobs[i]
+		tip:AddDoubleLine(("%s |cff808080%s, в мире %d|r"):format(m.name, LevelText(m.lmin, m.lmax), m.spawns),
+			ns.Money(m.value) .. " за убийство", 1, 1, 1, 1, 1, 1)
+	end
+	tip:AddLine(" ")
+	local gph, sec = ns.ZoneGoldPerHour(row.zone)
+	if gph then
+		tip:AddDoubleLine(("Твоё золото в час (%d мин фарма)"):format(math.floor(sec / 60)), ns.Money(gph), 0.4, 1, 0.4, 1, 1, 1)
+	else
+		tip:AddLine("Пофарми здесь 10+ минут - аддон посчитает твоё реальное золото в час.", 0.6, 0.6, 0.6, true)
+	end
+	tip:AddLine("Правый клик - самый доходный моб на карте", 0.6, 0.6, 0.6)
 end
 
 ---------------------------------------------------------------------------
@@ -234,6 +297,7 @@ end
 function ns.FarmRows()
 	local s = ns.db.settings
 	if s.farmMode == "items" then return ns.FarmItemRows() end
+	if s.farmMode == "zones" then return ns.FarmZoneRows() end
 	local rows = {}
 	local skills = ns.GatherSkills()
 	if s.farmMode == "nodes" then
@@ -246,7 +310,7 @@ function ns.FarmRows()
 				local cur = byName[name]
 				if not cur or value > cur.value then
 					byName[name] = {
-						kind = "node", node = id, label = name, labelText = name,
+						kind = "node", node = id, label = name, labelText = name, mapKind = "node", mapID = id, mapName = name,
 						lvl = need, lvlText = "навык " .. need,
 						zone = (kind == "H") and "Травничество" or "Горное дело",
 						value = value, id = bestId, best = bestId, bestChance = bestChance,
@@ -269,7 +333,7 @@ function ns.FarmRows()
 			local skinValue = (#m[6] > 0) and MobLoot(-id, m[6]) or 0
 			local value = m[3] + m[4] + lootValue + (skinning and skinValue or 0)
 			rows[#rows + 1] = {
-				kind = "mob", mob = id, label = m[7], labelText = m[7],
+				kind = "mob", mob = id, label = m[7], labelText = m[7], mapKind = "mob", mapID = id, mapName = m[7],
 				lvl = lmin, lvlText = LevelText(lmin, lmax),
 				zone = MobZone(id), value = value, gold = m[3], trash = m[4], spawns = m[8],
 				skinValue = skinValue, skinning = skinning,
@@ -337,4 +401,5 @@ function ns.FarmTooltip(row, tip)
 	elseif row.learnK and row.learnK >= 3 then
 		tip:AddLine(("Уточнено по твоим %d убийствам."):format(row.learnK), 0.6, 0.6, 0.6, true)
 	end
+	tip:AddLine("Правый клик - показать на карте", 0.6, 0.6, 0.6)
 end
