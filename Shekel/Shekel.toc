@@ -1,0 +1,24 @@
+## Interface: 16001
+## Title: Шекель
+## Notes: Ищет прибыльный крафт, выгодный фарм и перепродажу торговцу по снимку аукциона.
+## Version: 0.2
+## IconTexture: Interface\AddOns\Shekel\Media\icon
+## SavedVariables: ShekelDB
+## SavedVariablesPerCharacter: ShekelCharDB
+## OptionalDeps: Auctionator, QuestieDB
+
+Core.lua
+Data\Recipes.lua
+Data\Loot.lua
+Prices.lua
+Scan.lua
+Recipes.lua
+Craft.lua
+Farm.lua
+Flip.lua
+Learn.lua
+Shop.lua
+Buyer.lua
+Tooltip.lua
+UI.lua
+Minimap.lua

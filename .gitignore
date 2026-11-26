@@ -1,0 +1,9 @@
+# База vmangos (~180 МБ) — скачивается заново, см. NOTES.md
+data_src/
+
+# Служебное
+__pycache__/
+*.pyc
+*.bak
+.DS_Store
+Thumbs.db
